@@ -356,12 +356,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
             <div class="res-head">
               <h3>검색 결과 · 총 <b id="resCount">0</b>문항</h3>
               <div class="field" style="flex-direction:row; align-items:center; gap:6px; flex-wrap:wrap;">
-                <select id="vPick">
-                  <option value="1">각 번호의 -1번만</option>
-                  <option value="2">각 번호의 -2번만</option>
-                  <option value="3">각 번호의 -3번만</option>
-                </select>
-                <button class="btn sm ghost-green" onclick="pickVariants()">한 번에 담기</button>
+                <button class="btn sm ghost-green" onclick="pickVariants()">대표(-1)번만 모두 담기</button>
                 <label style="margin:0 0 0 8px;">정렬</label>
                 <select id="fSort" onchange="renderResults()">
                   <option value="unit">단원순</option>
@@ -556,7 +551,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <h3>유사문항 찾기 <span class="hint" id="simBase"></span></h3>
       <button class="btn-x" onclick="closeSim()">✕</button>
     </div>
-    <p class="desc" style="font-size:12px; color:var(--sub); margin-bottom:12px;">같은 유형 → 같은 단원 순으로 유사한 문항을 추천합니다. (프로토타입: 메타데이터 기반 / 실서비스: 임베딩·이미지 검색으로 확장 가능)</p>
+    <p class="desc" id="simDesc" style="font-size:12px; color:var(--sub); margin-bottom:12px;"></p>
     <div class="grid" id="simGrid"></div>
   </div>
 </div>
@@ -860,7 +855,9 @@ function cardHTML(p, opts={}){
   const btns = opts.similarMode
     ? `<button class="btn sm green" onclick="addBasket(${p.id})">＋ 바구니에 담기</button>`
     : `<button class="btn sm ${inB?"":"green"}" onclick="${inB?`removeBasket(${p.id})`:`addBasket(${p.id})`}">${inB?"✓ 담김 (빼기)":"＋ 담기"}</button>
-       <button class="btn sm ghost-green" onclick="openSim(${p.id})">유사문항</button>
+       ${(()=>{ if(!p.qnum) return ""; const vc=PROBLEMS.filter(q=>q.id!==p.id&&q.set===p.set&&qBase(q)===qBase(p)).length;
+          return vc>0? `<button class="btn sm ghost-green" onclick="openSeries(${p.id})">변형 ${vc}</button>` : ""; })()}
+       <button class="btn sm" onclick="openSim(${p.id})">유사문항</button>
        <button class="btn sm" onclick="toggleAns(this)">정답</button>
        ${p.custom? `<button class="btn sm danger" onclick="deleteProblem(${p.id})">삭제</button>`
                  : `<button class="btn sm danger" onclick="toast('오류 신고가 접수되었습니다. (데모)')">오류 신고</button>`}`;
@@ -918,7 +915,7 @@ function renderResults(){
 ================================================================ */
 function pById(id){ return PROBLEMS.find(p=>p.id===id); }
 function pickVariants(){
-  const v=$("#vPick").value;
+  const v="1";
   if(!state.searched){ toast("먼저 조건으로 검색한 뒤 사용하세요."); return; }
   const picks = state.results
     .filter(p=>p.qnum && p.qnum.split("-")[1]===v)
@@ -964,8 +961,20 @@ function renderBasket(){
 /* ================================================================
    SIMILAR
 ================================================================ */
+function openSeries(id){
+  const base=pById(id); const bb=qBase(base); if(!bb) return;
+  const series=PROBLEMS
+    .filter(q=>q.id!==id && q.set===base.set && qBase(q)===bb)
+    .sort((a,b)=>parseInt(a.qnum.split("-")[1])-parseInt(b.qnum.split("-")[1]));
+  $("#simBase").textContent = `기준: [${base.year?base.year+"년 · ":""}${base.qnum}] ${base.unit} · ${base.type}`;
+  $("#simDesc").textContent = `${bb}번의 변형 시리즈 ${series.length}문항입니다. 숫자만 다른 같은 유형이라 B형·재시험용으로 바로 담아 쓸 수 있어요.`;
+  $("#simGrid").innerHTML = series.map(x=>cardHTML(x,{similarMode:true})).join("");
+  renderMath($("#simGrid"));
+  $("#simOverlay").classList.add("open");
+}
 function openSim(id){
   const base=pById(id);
+  $("#simDesc").textContent = "같은 번호 변형 → 같은 유형 → 같은 단원 순으로 비슷한 문항을 추천합니다.";
   $("#simBase").textContent = `기준: [${String(base.id).padStart(3,"0")}] ${base.unit} · ${base.type}`;
   const bb = qBase(base);
   const scored = PROBLEMS.filter(p=>p.id!==id).map(p=>{
@@ -1084,6 +1093,7 @@ function bulkValidate(arr){
   });
   return errors;
 }
+function normBody(s){ return String(s||"").replace(/\s+/g," ").trim(); }
 function bulkCheck(silent){
   const el = $("#bulkStatus");
   const text = $("#bulkJson").value;
@@ -1094,7 +1104,16 @@ function bulkCheck(silent){
     if(errors.length){ el.textContent = "⚠ " + errors[0] + (errors.length>1?` (외 ${errors.length-1}건)`:""); el.style.color="var(--danger)"; return null; }
     const obj = arr.filter(it=>it.choices).length;
     const bases = new Set(arr.map((it,i)=>String(it.num||`${i+1}-1`).split("-")[0]));
-    el.textContent = `✓ ${arr.length}문항 인식 (객관식 ${obj} · 주관식 ${arr.length-obj}) · 번호 그룹 ${bases.size}개`;
+    const bodies = new Set(PROBLEMS.map(p=>normBody(p.body))), seen = new Set();
+    let dup=0, over=0;
+    arr.forEach((it,i)=>{
+      const nb=normBody(it.body);
+      if(bodies.has(nb)||seen.has(nb)) dup++; else seen.add(nb);
+      const sfx=parseInt(String(it.num||`${i+1}-1`).split("-")[1]||"1");
+      if(sfx>10) over++;
+    });
+    el.textContent = `✓ ${arr.length}문항 인식 (객관식 ${obj} · 주관식 ${arr.length-obj}) · 번호 그룹 ${bases.size}개`
+      + (dup?` · 완전 중복 ${dup}개 제외 예정`:"") + (over?` · -10 초과 변형 ${over}개 제외 예정`:"");
     el.style.color = "var(--green-dark)";
     return arr;
   }catch(e){
@@ -1113,10 +1132,16 @@ function bulkRegister(){
   const arr = bulkCheck();
   if(!arr){ toast("먼저 JSON 오류를 해결해주세요."); return; }
   const subjectsOk = new Set(allSubjects());
-  let added = 0;
+  const bodies = new Set(PROBLEMS.map(p=>normBody(p.body)));
+  let added = 0, dupSkipped = 0, capSkipped = 0;
   arr.forEach((it,i)=>{
     const num = String(it.num || `${i+1}-1`);
     const base = num.split("-")[0];
+    const sfx = parseInt(num.split("-")[1]||"1");
+    if(sfx>10){ capSkipped++; return; }                       // 변형은 -10까지만 보관
+    const nb = normBody(it.body);
+    if(bodies.has(nb)){ dupSkipped++; return; }               // 숫자까지 똑같은 완전 중복 차단
+    bodies.add(nb);
     const subject = subjectsOk.has(it.subject) ? it.subject : $("#bSubject").value;
     const unit = (it.unit && String(it.unit).trim()) || $("#bUnit").value;
     const type = (it.type && String(it.type).trim()) || `${base}번 유형`;
@@ -1131,11 +1156,35 @@ function bulkRegister(){
     p.explanation = (it.explanation && String(it.explanation)) || null;
     PROBLEMS.push(p); added++;
   });
+  // 유형 풀 정리: 같은 (과목·단원·유형) 변형이 10개를 넘으면 오래된 연도부터 자동 삭제
+  let pruned = 0;
+  {
+    const pools = {};
+    PROBLEMS.filter(p=>p.custom).forEach(p=>{
+      const k = p.subject+"|"+p.unit+"|"+p.type;
+      (pools[k]=pools[k]||[]).push(p);
+    });
+    Object.values(pools).forEach(list=>{
+      if(list.length<=10) return;
+      list.sort((a,b)=>((a.year||0)-(b.year||0)) || (a.id-b.id));   // 오래된 것부터
+      let excess = list.length-10;
+      for(const p of list){
+        if(excess<=0) break;
+        if(p.set===setName) continue;                               // 방금 올린 것은 남김
+        PROBLEMS.splice(PROBLEMS.indexOf(p),1);
+        state.basket = state.basket.filter(x=>x!==p.id);
+        pruned++; excess--;
+      }
+    });
+  }
   $("#bulkJson").value=""; $("#bulkStatus").textContent="";
   buildSrcRow(); buildUnitBox(); buildSubjRow(); renderAdminGrid();
   if(state.searched) runSearch();
   markDirty();
-  toast(`${year}년 자료로 ${added}문항을 등록했습니다. 검색창에 번호(예: 2)를 치면 변형이 모두 나옵니다.`);
+  toast(`${year}년 자료로 ${added}문항 등록`
+    + (dupSkipped?` · 완전 중복 ${dupSkipped}개 제외`:"")
+    + (capSkipped?` · 한 번에 -10 초과 변형 ${capSkipped}개 제외`:"")
+    + (pruned?` · 유형당 10개 유지를 위해 오래된 변형 ${pruned}개 자동 정리`:""));
 }
 function toggleChoiceInput(){
   $("#choiceField").style.display = $("#rForm").value==="obj"?"block":"none";
@@ -1154,6 +1203,7 @@ function registerProblem(){
   const type=$("#rType").value.trim();
   const answer=$("#rAnswer").value.trim();
   if(!body||!type||!answer){ toast("유형, 문제 본문, 정답은 필수입니다."); return; }
+  if(PROBLEMS.some(p=>normBody(p.body)===normBody(body))){ toast("숫자까지 똑같은 문항이 이미 등록되어 있습니다."); return; }
   let choices=null;
   if($("#rForm").value==="obj"){
     choices = $("#rChoices").value.split(/\||\n/).map(s=>s.trim()).filter(Boolean);
@@ -1183,17 +1233,47 @@ function renderYearPanel(){
   const map={};
   PROBLEMS.filter(p=>p.custom).forEach(p=>{
     const y = p.year || "연도 없음";
-    if(!map[y]) map[y]={n:0, sets:new Set()};
-    map[y].n++; if(p.set) map[y].sets.add(p.set);
+    if(!map[y]) map[y]={n:0, sets:{}};
+    map[y].n++;
+    const s = p.set || "개별 등록";
+    map[y].sets[s] = (map[y].sets[s]||0)+1;
   });
   const years=Object.keys(map).sort().reverse();
-  el.innerHTML = years.length? years.map(y=>`
+  el.innerHTML = years.length? years.map(y=>{
+    const setRows = Object.entries(map[y].sets).map(([s,c])=>`
+      <div class="file-row" style="margin-left:34px; padding:7px 12px;">
+        <div class="f-info"><div class="f-sub" style="font-size:12.5px; color:var(--ink);">${esc(s)} <span style="color:var(--sub);">· ${c}문항</span></div></div>
+        <button class="btn sm danger" onclick="deleteSet('${esc(s)}')">이 업로드만 삭제</button>
+      </div>`).join("");
+    return `
     <div class="file-row">
       <div class="file-ico" style="background:#b9a7ec">${String(y).slice(-2)}</div>
-      <div class="f-info"><div class="f-title">${y}${/^\d+$/.test(y)?"년":""}</div><div class="f-sub">문항 ${map[y].n}개 · 업로드 ${map[y].sets.size}회</div></div>
+      <div class="f-info"><div class="f-title">${y}${/^\d+$/.test(y)?"년":""}</div><div class="f-sub">문항 ${map[y].n}개 · 업로드 ${Object.keys(map[y].sets).length}회</div></div>
       <button class="btn sm danger" onclick="deleteYear('${y}')">이 연도 전체 삭제</button>
-    </div>`).join("")
+    </div>${setRows}`;
+  }).join("")
     : `<p class="hint">직접 등록한 문항이 아직 없습니다. 등록하면 연도별로 집계돼요.</p>`;
+}
+const _setDel={};
+function deleteSet(s){
+  if(!_setDel[s]){
+    _setDel[s]=true;
+    toast(`'${s}' 업로드분을 삭제합니다. 정말이면 4초 안에 한 번 더 누르세요.`);
+    setTimeout(()=>_setDel[s]=false, 4000);
+    return;
+  }
+  let removed=0;
+  for(let i=PROBLEMS.length-1;i>=0;i--){
+    const p=PROBLEMS[i];
+    const key = p.set || "개별 등록";
+    if(p.custom && key===s){
+      state.basket=state.basket.filter(x=>x!==p.id);
+      PROBLEMS.splice(i,1); removed++;
+    }
+  }
+  state.results=state.results.filter(p=>PROBLEMS.includes(p));
+  buildSrcRow(); buildUnitBox(); renderAdminGrid(); refreshCards(); markDirty();
+  toast(`'${s}' 문항 ${removed}개를 삭제했습니다.`);
 }
 const _yearDel={};
 function deleteYear(y){
