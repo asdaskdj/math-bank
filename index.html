@@ -346,6 +346,9 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
                 <option value="subj">주관식</option>
               </select>
             </div>
+            <label class="src-chip" style="align-self:flex-end; border-color:#ecd9ae;">
+              <input type="checkbox" id="fStar"> <span style="color:#d99a1f;">★</span> 표시한 문제만
+            </label>
             <button class="btn" onclick="resetFilters()">검색 초기화</button>
             <button class="btn green" onclick="runSearch()">선택한 조건으로 검색</button>
           </div>
@@ -624,7 +627,7 @@ const CIRC = ["①","②","③","④","⑤"];
 let SEQ = 0;
 function levelOf(subject){ for(const lvl in CURRICULUM){ if(CURRICULUM[lvl][subject]) return lvl; } return "고"; }
 function P(subject, unit, type, difficulty, source, sourceDetail, points, body, choices, answer){
-  return {id:++SEQ, level:levelOf(subject), subject, unit, midUnit:null, type, difficulty, source, sourceDetail, points, body, choices, answer, custom:false, set:null, qnum:null, explanation:null};
+  return {id:++SEQ, level:levelOf(subject), subject, unit, midUnit:null, type, difficulty, source, sourceDetail, points, body, choices, answer, custom:false, set:null, qnum:null, explanation:null, starred:false};
 }
 function qBase(p){ return p.qnum? p.qnum.split("-")[0] : null; }
 
@@ -850,6 +853,7 @@ function matches(p){
   const f=$("#fForm").value;
   if(f==="obj"&&!p.choices) return false;
   if(f==="subj"&&p.choices) return false;
+  if($("#fStar").checked && !p.starred) return false;
   return true;
 }
 function runSearch(){
@@ -860,7 +864,7 @@ function runSearch(){
 }
 function resetFilters(){
   state.units.clear(); state.sources=new Set(SOURCES);
-  $("#fKeyword").value=""; $("#fDiffMin").value=""; $("#fDiffMax").value=""; $("#fForm").value="";
+  $("#fKeyword").value=""; $("#fDiffMin").value=""; $("#fDiffMax").value=""; $("#fForm").value=""; $("#fStar").checked=false;
   buildSrcRow(); buildUnitBox(); updateSelSummary();
 }
 function resetAll(){ resetFilters(); state.results=[]; state.searched=false; state.basket=[]; renderResults(); renderBasket(); toast("화면을 초기화했습니다."); }
@@ -874,6 +878,7 @@ function cardHTML(p, opts={}){
   const btns = opts.similarMode
     ? `<button class="btn sm green" onclick="addBasket(${p.id})">＋ 바구니에 담기</button>`
     : `<button class="btn sm ${inB?"":"green"}" onclick="${inB?`removeBasket(${p.id})`:`addBasket(${p.id})`}">${inB?"✓ 담김 (빼기)":"＋ 담기"}</button>
+       <button class="btn sm" onclick="toggleStar(${p.id})" title="어려운 문제 표시" style="${p.starred?"color:#d99a1f; border-color:#ecd9ae; background:#fdf7e8;":""}">${p.starred?"★":"☆"}</button>
        ${(()=>{ if(!p.qnum) return ""; const vc=PROBLEMS.filter(q=>q.id!==p.id&&q.set===p.set&&qBase(q)===qBase(p)).length;
           return vc>0? `<button class="btn sm ghost-green" onclick="openSeries(${p.id})">변형 ${vc}</button>` : ""; })()}
        <button class="btn sm" onclick="openSim(${p.id})">유사문항</button>
@@ -882,7 +887,7 @@ function cardHTML(p, opts={}){
                  : `<button class="btn sm danger" onclick="toast('오류 신고가 접수되었습니다. (데모)')">오류 신고</button>`}`;
   return `<div class="qcard ${inB&&!opts.similarMode?"inbasket":""}" data-id="${p.id}">
     <span class="qno">${String(p.id).padStart(3,"0")}${p.custom?" · 신규":""}</span>
-    <div class="qtitle">${opts.selectable?`<input type="checkbox" ${SEL.has(p.id)?"checked":""} onchange="toggleSel(${p.id},this.checked)" style="accent-color:var(--green); width:15px; height:15px; vertical-align:-2px; margin-right:7px;">`:""}${p.qnum?`<span style="color:var(--green-dark); margin-right:6px;">[${p.year?p.year+"년 · ":""}${p.qnum}]</span>`:""}${p.unit} · ${p.midUnit?p.midUnit+" · ":""}${p.type}</div>
+    <div class="qtitle">${p.starred?`<span style="color:#d99a1f; margin-right:4px;">★</span>`:""}${opts.selectable?`<input type="checkbox" ${SEL.has(p.id)?"checked":""} onchange="toggleSel(${p.id},this.checked)" style="accent-color:var(--green); width:15px; height:15px; vertical-align:-2px; margin-right:7px;">`:""}${p.qnum?`<span style="color:var(--green-dark); margin-right:6px;">[${p.year?p.year+"년 · ":""}${p.qnum}]</span>`:""}${p.unit} · ${p.midUnit?p.midUnit+" · ":""}${p.type}</div>
     <div class="qbody">${p.body}${choices}</div>
     <div class="qmeta">
       <span class="tag src">${p.source} · ${esc(p.sourceDetail)}</span>
@@ -902,6 +907,13 @@ function deleteProblem(id){
   state.results=state.results.filter(x=>x.id!==id);
   buildSrcRow(); buildUnitBox(); renderAdminGrid(); refreshCards(); markDirty();
   toast("문항을 삭제했습니다.");
+}
+function toggleStar(id){
+  const p=pById(id); if(!p) return;
+  p.starred=!p.starred;
+  renderResults(); renderAdminGrid();
+  markDirty();
+  if(p.starred) toast("★ 어려운 문제로 표시했습니다. 검색 필터의 '★만'으로 모아볼 수 있어요.");
 }
 function toggleAns(btn){
   const line = btn.closest(".qcard").querySelector(".ans-line");
@@ -1373,7 +1385,7 @@ function collectState(){
       subject:p.subject, unit:p.unit, midUnit:p.midUnit||null, type:p.type, difficulty:p.difficulty,
       source:p.source, sourceDetail:p.sourceDetail, points:p.points,
       body:p.body, choices:p.choices, answer:p.answer,
-      set:p.set, num:p.qnum, year:p.year||null, explanation:p.explanation
+      set:p.set, num:p.qnum, year:p.year||null, explanation:p.explanation, starred:!!p.starred
     })),
     folders: FOLDERS.map(function ser(f){ return {name:f.name, color:f.color,
       files:f.files.map(fl=>({name:fl.name, size:fl.size, date:fl.date, path:fl.path||null})),
@@ -1390,7 +1402,7 @@ function applyState(data, replace){
   (data.customProblems||[]).forEach(cp=>{
     const p = P(cp.subject, cp.unit, cp.type, cp.difficulty, cp.source,
                 cp.sourceDetail, cp.points, cp.body, cp.choices||null, cp.answer);
-    p.custom = true; p.set = cp.set||null; p.qnum = cp.num||null; p.year = cp.year||null; p.midUnit = cp.midUnit||null; p.explanation = cp.explanation||null;
+    p.custom = true; p.set = cp.set||null; p.qnum = cp.num||null; p.year = cp.year||null; p.midUnit = cp.midUnit||null; p.explanation = cp.explanation||null; p.starred = !!cp.starred;
     PROBLEMS.push(p); added++;
   });
   if(Array.isArray(data.folders) && data.folders.length){
