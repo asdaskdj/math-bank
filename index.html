@@ -413,7 +413,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           <p class="desc">새 문항을 등록하면 즉시 검색 대상에 포함됩니다. 수식은 <b>$ … $</b> 구분자로 LaTeX를 입력하세요. (예: <code>$x^2+2x-1$</code>)</p>
           <div class="form-grid">
             <div class="field"><label>과목</label><select id="rSubject"></select></div>
-            <div class="field"><label>단원</label><select id="rUnit"></select></div>
+            <div class="field"><label>단원(대단원)</label><select id="rUnit"></select></div>
+            <div class="field"><label>중단원 <span class="hint">(선택)</span></label><input id="rMid" placeholder="예: 순열과 조합"></div>
             <div class="field"><label>유형(소분류)</label><input id="rType" placeholder="예: 나머지정리 활용"></div>
             <div class="field"><label>난이도 (0 ~ 10)</label><input id="rDiff" type="number" min="0" max="10" step="0.1" value="5.0"></div>
             <div class="field"><label>출처 구분</label><select id="rSrc"><option>자체제작</option><option>내신 기출</option><option>모의고사 기출</option><option>출판사</option><option>온라인</option></select></div>
@@ -446,8 +447,13 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         </div>
 
         <div class="panel">
-          <h2>등록 문항 관리 <span class="hint">(최근 등록순)</span></h2>
-          <div class="grid" id="adminGrid" style="margin-top:10px;"></div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <h2 style="margin:0;">등록 문항 관리 <span class="hint">(최근 등록순 · 카드의 체크박스로 골라서 삭제)</span></h2>
+            <span style="flex:1"></span>
+            <button class="btn sm" onclick="selAll()">전체 선택/해제</button>
+            <button class="btn sm danger" id="delSelBtn" onclick="deleteSelected()">선택 삭제</button>
+          </div>
+          <div class="grid" id="adminGrid" style="margin-top:12px;"></div>
         </div>
       </section>
 
@@ -597,8 +603,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 const CURRICULUM = {
   "초": {"초등 수학": ["수와 연산", "도형과 측정", "규칙성", "자료와 가능성"]},
   "중": {
-    "중1": ["소인수분해", "정수와 유리수", "문자와 식", "좌표평면과 그래프", "기본 도형", "통계"],
-    "중2": ["유리수와 순환소수", "식의 계산", "일차부등식", "연립일차방정식", "일차함수", "확률"],
+    "중1": ["소인수분해", "정수와 유리수", "문자와 식", "좌표평면과 그래프", "기본 도형", "평면도형", "입체도형", "통계"],
+    "중2": ["유리수와 순환소수", "식의 계산", "일차부등식", "연립일차방정식", "일차함수", "도형의 성질", "도형의 닮음", "피타고라스 정리", "확률"],
     "중3": ["제곱근과 실수", "다항식의 곱셈과 인수분해", "이차방정식", "이차함수", "삼각비", "원의 성질", "통계"]
   },
   "고": {
@@ -606,7 +612,7 @@ const CURRICULUM = {
     "공통수학2(22개정)": ["도형의 방정식", "집합과 명제", "함수와 그래프"],
     "대수(22개정)": ["지수함수와 로그함수", "삼각함수", "수열"],
     "미적분Ⅰ(22개정)": ["함수의 극한과 연속", "미분", "적분"],
-    "확률과 통계(22개정)": ["경우의 수(확통)", "확률", "통계"],
+    "확률과 통계(22개정)": ["경우의 수", "확률", "통계"],
     "기하(22개정)": ["이차곡선", "공간도형과 공간좌표", "벡터"]
   }
 };
@@ -618,7 +624,7 @@ const CIRC = ["①","②","③","④","⑤"];
 let SEQ = 0;
 function levelOf(subject){ for(const lvl in CURRICULUM){ if(CURRICULUM[lvl][subject]) return lvl; } return "고"; }
 function P(subject, unit, type, difficulty, source, sourceDetail, points, body, choices, answer){
-  return {id:++SEQ, level:levelOf(subject), subject, unit, type, difficulty, source, sourceDetail, points, body, choices, answer, custom:false, set:null, qnum:null, explanation:null};
+  return {id:++SEQ, level:levelOf(subject), subject, unit, midUnit:null, type, difficulty, source, sourceDetail, points, body, choices, answer, custom:false, set:null, qnum:null, explanation:null};
 }
 function qBase(p){ return p.qnum? p.qnum.split("-")[0] : null; }
 
@@ -780,14 +786,26 @@ function buildUnitBox(){
     html += `<label class="unit-row unit-head">
       <input type="checkbox" ${state.units.has(u)?"checked":""} onchange="toggleUnit('${u}',this.checked)">
       ${u}<span class="u-cnt">${n}문항</span></label>`;
-    // child rows: 유형 in this unit (from data)
-    const types = [...new Set(PROBLEMS.filter(p=>p.subject===state.subject&&p.unit===u).map(p=>p.type))];
-    types.forEach(t=>{
-      const key=u+"::"+t;
-      html += `<label class="unit-row child">
-        <input type="checkbox" ${state.units.has(key)?"checked":""} onchange="toggleUnit('${key.replace(/'/g,"\\'")}',this.checked)">
-        ${t}<span class="u-cnt">${typeCounts[state.subject+"|"+u+"|"+t]||0}</span></label>`;
-    });
+    // child rows: 중단원이 있으면 중단원으로, 없으면 유형으로
+    const inUnit = PROBLEMS.filter(p=>p.subject===state.subject&&p.unit===u);
+    const mids = [...new Set(inUnit.filter(p=>p.midUnit).map(p=>p.midUnit))];
+    if(mids.length){
+      mids.forEach(m=>{
+        const key=u+"::M::"+m;
+        const cnt=inUnit.filter(p=>p.midUnit===m).length;
+        html += `<label class="unit-row child">
+          <input type="checkbox" ${state.units.has(key)?"checked":""} onchange="toggleUnit('${key.replace(/'/g,"\\'")}',this.checked)">
+          ${m}<span class="u-cnt">${cnt}</span></label>`;
+      });
+    }else{
+      const types = [...new Set(inUnit.map(p=>p.type))];
+      types.forEach(t=>{
+        const key=u+"::T::"+t;
+        html += `<label class="unit-row child">
+          <input type="checkbox" ${state.units.has(key)?"checked":""} onchange="toggleUnit('${key.replace(/'/g,"\\'")}',this.checked)">
+          ${t}<span class="u-cnt">${typeCounts[state.subject+"|"+u+"|"+t]||0}</span></label>`;
+      });
+    }
   });
   $("#unitBox").innerHTML = html || `<div style="padding:14px; color:var(--sub);">해당 과목의 단원 데이터가 없습니다.</div>`;
 }
@@ -795,7 +813,7 @@ function toggleUnit(key,on){ on?state.units.add(key):state.units.delete(key); up
 function updateSelSummary(){
   const el=$("#selSummary");
   if(state.units.size===0){ el.style.display="none"; return; }
-  const names=[...state.units].map(k=>k.includes("::")?k.split("::")[1]:k);
+  const names=[...state.units].map(k=>k.includes("::M::")?k.split("::M::")[1]:k.includes("::T::")?k.split("::T::")[1]:k);
   el.style.display="block";
   el.textContent = `${state.units.size}개 선택됨 · ${names.slice(0,4).join(", ")}${names.length>4?" 외":""}`;
 }
@@ -810,7 +828,8 @@ function matches(p){
   if(state.units.size>0){
     let ok=false;
     for(const k of state.units){
-      if(k.includes("::")){ const [u,t]=k.split("::"); if(p.unit===u&&p.type===t){ok=true;break;} }
+      if(k.includes("::M::")){ const [u,m]=k.split("::M::"); if(p.unit===u&&p.midUnit===m){ok=true;break;} }
+      else if(k.includes("::T::")){ const [u,t]=k.split("::T::"); if(p.unit===u&&p.type===t){ok=true;break;} }
       else if(p.unit===k){ok=true;break;}
     }
     if(!ok) return false;
@@ -822,7 +841,7 @@ function matches(p){
       if(!(p.qnum && (p.qnum===kw || p.qnum.startsWith(kw+"-")))) return false;
     }else{
       const setHit = (p.set && p.set.includes(kw)) || (p.year && String(p.year).includes(kw));
-      if(!(setHit||p.body.includes(kw)||p.type.includes(kw)||p.unit.includes(kw)||p.sourceDetail.includes(kw))) return false;
+      if(!(setHit||p.body.includes(kw)||p.type.includes(kw)||p.unit.includes(kw)||(p.midUnit&&p.midUnit.includes(kw))||p.sourceDetail.includes(kw))) return false;
     }
   }
   const dmin=parseFloat($("#fDiffMin").value), dmax=parseFloat($("#fDiffMax").value);
@@ -863,7 +882,7 @@ function cardHTML(p, opts={}){
                  : `<button class="btn sm danger" onclick="toast('오류 신고가 접수되었습니다. (데모)')">오류 신고</button>`}`;
   return `<div class="qcard ${inB&&!opts.similarMode?"inbasket":""}" data-id="${p.id}">
     <span class="qno">${String(p.id).padStart(3,"0")}${p.custom?" · 신규":""}</span>
-    <div class="qtitle">${p.qnum?`<span style="color:var(--green-dark); margin-right:6px;">[${p.year?p.year+"년 · ":""}${p.qnum}]</span>`:""}${p.unit} · ${p.type}</div>
+    <div class="qtitle">${opts.selectable?`<input type="checkbox" ${SEL.has(p.id)?"checked":""} onchange="toggleSel(${p.id},this.checked)" style="accent-color:var(--green); width:15px; height:15px; vertical-align:-2px; margin-right:7px;">`:""}${p.qnum?`<span style="color:var(--green-dark); margin-right:6px;">[${p.year?p.year+"년 · ":""}${p.qnum}]</span>`:""}${p.unit} · ${p.midUnit?p.midUnit+" · ":""}${p.type}</div>
     <div class="qbody">${p.body}${choices}</div>
     <div class="qmeta">
       <span class="tag src">${p.source} · ${esc(p.sourceDetail)}</span>
@@ -981,6 +1000,7 @@ function openSim(id){
     let s=0;
     if(bb && p.set===base.set && qBase(p)===bb) s+=1000;   // 같은 번호 변형 (2-1, 2-2 …)
     if(p.type===base.type) s+=100;
+    if(base.midUnit && p.midUnit===base.midUnit) s+=30;
     if(p.unit===base.unit) s+=40;
     if(p.subject===base.subject) s+=20;
     s -= Math.abs(p.difficulty-base.difficulty)*2;
@@ -1142,6 +1162,7 @@ function bulkRegister(){
     const nb = normBody(it.body);
     if(bodies.has(nb)){ dupSkipped++; return; }               // 숫자까지 똑같은 완전 중복 차단
     bodies.add(nb);
+    const midUnit = (it.midUnit && String(it.midUnit).trim()) || null;
     const subject = subjectsOk.has(it.subject) ? it.subject : $("#bSubject").value;
     const unit = (it.unit && String(it.unit).trim()) || $("#bUnit").value;
     const type = (it.type && String(it.type).trim()) || `${base}번 유형`;
@@ -1152,7 +1173,7 @@ function bulkRegister(){
     const points = [2,3,4,5].includes(parseInt(it.points)) ? parseInt(it.points) : 4;
     const choices = Array.isArray(it.choices) && it.choices.length===5 ? it.choices.map(String) : null;
     const p = P(subject, unit, type, diff, source, sourceDetail, points, String(it.body), choices, String(it.answer));
-    p.custom = true; p.set = setName; p.qnum = num; p.year = year;
+    p.custom = true; p.set = setName; p.qnum = num; p.year = year; p.midUnit = midUnit;
     p.explanation = (it.explanation && String(it.explanation)) || null;
     PROBLEMS.push(p); added++;
   });
@@ -1195,7 +1216,7 @@ function livePreview(){
   renderMath(el);
 }
 function clearRegForm(){
-  $("#rType").value=""; $("#rSrcDetail").value=""; $("#rAnswer").value="";
+  $("#rType").value=""; $("#rMid").value=""; $("#rSrcDetail").value=""; $("#rAnswer").value="";
   $("#rBody").value=""; $("#rChoices").value=""; livePreview();
 }
 function registerProblem(){
@@ -1214,7 +1235,7 @@ function registerProblem(){
   dv = Math.round(dv*10)/10;
   const p = P($("#rSubject").value, $("#rUnit").value, type, dv,
               $("#rSrc").value, $("#rSrcDetail").value||"직접 등록", parseInt($("#rPts").value), body, choices, answer);
-  p.custom=true; p.year=new Date().getFullYear();
+  p.custom=true; p.year=new Date().getFullYear(); p.midUnit=$("#rMid").value.trim()||null;
   PROBLEMS.push(p);
   buildSrcRow(); buildUnitBox(); buildSubjRow(); renderAdminGrid();
   clearRegForm(); markDirty();
@@ -1223,7 +1244,7 @@ function registerProblem(){
 function renderAdminGrid(){
   const customs=PROBLEMS.filter(p=>p.custom).reverse();
   $("#adminGrid").innerHTML = customs.length
-    ? customs.map(p=>cardHTML(p)).join("")
+    ? customs.map(p=>cardHTML(p,{selectable:true})).join("")
     : `<div class="placeholder-view" style="grid-column:1/-1;"><b>직접 등록한 문항이 없습니다</b>위 폼으로 첫 문항을 등록해보세요.</div>`;
   renderMath($("#adminGrid"));
   renderYearPanel();
@@ -1253,6 +1274,34 @@ function renderYearPanel(){
     </div>${setRows}`;
   }).join("")
     : `<p class="hint">직접 등록한 문항이 아직 없습니다. 등록하면 연도별로 집계돼요.</p>`;
+}
+/* ---- 선택 삭제 ---- */
+const SEL = new Set();
+function updateDelBtn(){ const b=$("#delSelBtn"); if(b) b.textContent = `선택 삭제${SEL.size?` (${SEL.size})`:""}`; }
+function toggleSel(id,on){ on? SEL.add(id) : SEL.delete(id); updateDelBtn(); }
+function selAll(){
+  const customs = PROBLEMS.filter(p=>p.custom);
+  const allSelected = customs.length && customs.every(p=>SEL.has(p.id));
+  SEL.clear();
+  if(!allSelected) customs.forEach(p=>SEL.add(p.id));
+  renderAdminGrid(); updateDelBtn();
+}
+let _selDelArm=false;
+function deleteSelected(){
+  if(!SEL.size){ toast("카드의 체크박스로 삭제할 문항을 먼저 선택하세요."); return; }
+  if(!_selDelArm){ _selDelArm=true; toast(`선택한 ${SEL.size}개 문항을 삭제합니다. 정말이면 4초 안에 한 번 더 누르세요.`); setTimeout(()=>_selDelArm=false,4000); return; }
+  let removed=0;
+  for(let i=PROBLEMS.length-1;i>=0;i--){
+    const p=PROBLEMS[i];
+    if(p.custom && SEL.has(p.id)){
+      state.basket=state.basket.filter(x=>x!==p.id);
+      PROBLEMS.splice(i,1); removed++;
+    }
+  }
+  SEL.clear(); _selDelArm=false;
+  state.results=state.results.filter(p=>PROBLEMS.includes(p));
+  buildSrcRow(); buildUnitBox(); renderAdminGrid(); refreshCards(); updateDelBtn(); markDirty();
+  toast(`${removed}개 문항을 삭제했습니다.`);
 }
 const _setDel={};
 function deleteSet(s){
@@ -1321,7 +1370,7 @@ function collectState(){
   return {
     app:"math-item-bank", version:1,
     customProblems: PROBLEMS.filter(p=>p.custom).map(p=>({
-      subject:p.subject, unit:p.unit, type:p.type, difficulty:p.difficulty,
+      subject:p.subject, unit:p.unit, midUnit:p.midUnit||null, type:p.type, difficulty:p.difficulty,
       source:p.source, sourceDetail:p.sourceDetail, points:p.points,
       body:p.body, choices:p.choices, answer:p.answer,
       set:p.set, num:p.qnum, year:p.year||null, explanation:p.explanation
@@ -1341,7 +1390,7 @@ function applyState(data, replace){
   (data.customProblems||[]).forEach(cp=>{
     const p = P(cp.subject, cp.unit, cp.type, cp.difficulty, cp.source,
                 cp.sourceDetail, cp.points, cp.body, cp.choices||null, cp.answer);
-    p.custom = true; p.set = cp.set||null; p.qnum = cp.num||null; p.year = cp.year||null; p.explanation = cp.explanation||null;
+    p.custom = true; p.set = cp.set||null; p.qnum = cp.num||null; p.year = cp.year||null; p.midUnit = cp.midUnit||null; p.explanation = cp.explanation||null;
     PROBLEMS.push(p); added++;
   });
   if(Array.isArray(data.folders) && data.folders.length){
