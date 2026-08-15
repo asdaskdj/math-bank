@@ -280,7 +280,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <button data-view="bm"><span class="ico">✿</span>Beατifυl Mατλ</button>
       <button data-view="search" class="active"><span class="ico">🔍</span>문항 검색</button>
       <button data-view="admin"><span class="ico">✚</span>문항 등록/관리</button>
-      <button data-view="exam"><span class="ico">📄</span>월간테스트 만들기</button>
+      <button data-view="exam"><span class="ico">📄</span>시험지 만들기</button>
+      <button data-view="naesin"><span class="ico">🎓</span>내신대비</button>
     </nav>
     <div class="foot">v0.1 프로토타입<br>문항 데이터는 데모용 샘플입니다.</div>
   </aside>
@@ -362,6 +363,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
                 <button class="btn sm ghost-green" onclick="pickVariants()">대표(-1)번만 모두 담기</button>
                 <label style="margin:0 0 0 8px;">정렬</label>
                 <select id="fSort" onchange="renderResults()">
+                  <option value="variants">변형 많은순</option>
                   <option value="unit">단원순</option>
                   <option value="diffAsc">난이도 낮은순</option>
                   <option value="diffDesc">난이도 높은순</option>
@@ -374,12 +376,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
           <!-- basket -->
           <aside class="basket">
             <h3>문항 바구니 <span id="basketCount" style="color:var(--green-dark)"></span></h3>
-            <p class="desc">담은 문항으로 월간테스트를 만들 수 있습니다.</p>
+            <p class="desc">담은 문항으로 시험지를 만들 수 있습니다.</p>
             <div id="basketList"></div>
             <div class="basket-foot">
               <div class="basket-stat" id="basketStat"></div>
               <button class="btn" onclick="clearBasket()">바구니 비우기</button>
-              <button class="btn green" id="makeExamBtn" onclick="openExam()">바구니로 월간테스트 만들기</button>
+              <button class="btn green" id="makeExamBtn" onclick="openExam()">바구니로 시험지 만들기</button>
             </div>
           </aside>
         </div>
@@ -463,9 +465,39 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
       <!-- ======== VIEW: EXAM (placeholder redirect) ======== -->
       <section id="view-exam" style="display:none;">
         <div class="placeholder-view">
-          <b>월간테스트 만들기</b>
-          문항 검색에서 문항을 바구니에 담은 뒤 <b>[바구니로 월간테스트 만들기]</b>를 누르면 이곳에서 미리보기가 열립니다.<br><br>
+          <b>시험지 만들기</b>
+          문항 검색에서 문항을 바구니에 담은 뒤 <b>[바구니로 시험지 만들기]</b>를 누르면 이곳에서 미리보기가 열립니다.<br><br>
           <button class="btn green" onclick="switchView('search')">문항 검색으로 이동</button>
+        </div>
+      </section>
+
+      <!-- ======== VIEW: NAESIN (내신대비) ======== -->
+      <section id="view-naesin" style="display:none;">
+        <div class="panel">
+          <h2>학생 관리</h2>
+          <p class="desc">학생을 추가하고, 저장한 시험지에서 틀린 문항을 체크하면 그 문항들의 변형(-2, -3 …)으로 재시험을 만들 수 있습니다.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="field"><label>이름</label><input id="nsName" placeholder="예: 김민준" onkeydown="if(event.key==='Enter')addStudent()"></div>
+            <div class="field"><label>학년</label><select id="nsGrade"><option>중1</option><option selected>중2</option><option>중3</option><option>고1</option><option>고2</option><option>고3</option></select></div>
+            <button class="btn green" onclick="addStudent()">＋ 학생 추가</button>
+          </div>
+          <div id="stuList" style="margin-top:14px;"></div>
+        </div>
+        <div class="panel" id="stuDetail" style="display:none;">
+          <div class="bm-head">
+            <div><h2 id="stuTitle" style="margin:0;"></h2><p class="desc" id="stuSub" style="margin:0;"></p></div>
+            <button class="btn danger" onclick="removeStudent()">학생 삭제</button>
+          </div>
+          <h2 style="font-size:14px; margin:6px 0 8px;">저장된 시험지</h2>
+          <div id="stuExamList"></div>
+          <div id="wrongPanel" style="display:none; margin-top:18px;">
+            <h2 style="font-size:14px;" id="wrongTitle"></h2>
+            <p class="desc">틀린 문항에 체크하세요. 체크 즉시 자동 저장됩니다.</p>
+            <div id="wrongList"></div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+              <button class="btn green" onclick="makeRetest()">틀린 문항의 변형으로 재시험 바구니 만들기</button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -569,11 +601,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 <div class="overlay" id="examOverlay" onclick="if(event.target===this)closeExam()">
   <div class="modal wide">
     <div class="modal-head">
-      <h3>월간테스트 미리보기</h3>
+      <h3>시험지 미리보기</h3>
       <button class="btn-x" onclick="closeExam()">✕</button>
     </div>
-    <div class="form-grid" style="grid-template-columns:0.8fr 1.1fr 1.2fr 1.6fr 1fr;">
-      <div class="field"><label>월</label><select id="eMonth" onchange="buildPaper()">
+    <div class="form-grid" style="grid-template-columns:0.55fr 1fr 0.9fr 0.9fr 1.3fr 0.8fr;">
+      <div class="field"><label>시험 명칭</label><input id="eName" value="월간테스트" oninput="buildPaper()"></div>
+      <div class="field" style="grid-row:1; grid-column:2;"><label>월</label><select id="eMonth" onchange="buildPaper()">
         <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
         <option>7</option><option selected>8</option><option>9</option><option>10</option><option>11</option><option>12</option>
       </select></div>
@@ -592,6 +625,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
     <div class="modal-foot">
       <button class="btn" onclick="closeExam()">닫기</button>
       <button class="btn ghost-green" onclick="shuffleExam()">문항 순서 섞기</button>
+      <button class="btn ghost-green" onclick="saveExam()">시험지 저장</button>
       <button class="btn green" onclick="window.print()">인쇄 / PDF 저장</button>
     </div>
   </div>
@@ -923,6 +957,10 @@ function sortedResults(){
   const arr=[...state.results]; const s=$("#fSort").value;
   if(s==="diffAsc") arr.sort((a,b)=>a.difficulty-b.difficulty);
   else if(s==="diffDesc") arr.sort((a,b)=>b.difficulty-a.difficulty);
+  else if(s==="variants"){
+    const vc = p => p.qnum? PROBLEMS.filter(q=>q.set===p.set&&qBase(q)===qBase(p)).length : 0;
+    arr.sort((a,b)=>vc(b)-vc(a) || a.id-b.id);
+  }
   else arr.sort((a,b)=>a.id-b.id);
   return arr;
 }
@@ -1057,7 +1095,7 @@ function buildPaper(){
     <div class="ep-head">
       <span class="ep-grade">${gradeMap[t]}</span>
       <div class="ep-org">${orgLines.map(esc).join("<br>")}</div>
-      <div class="ep-sub">${month}월 월간테스트 ${t}</div>
+      <div class="ep-sub">${month}월 ${esc($("#eName").value.trim()||"시험지")} ${t}</div>
       <div class="ep-title">${esc($("#eSubjName").value||"수학 영역")}</div>
     </div>
     <div class="ep-rule"></div>
@@ -1080,6 +1118,113 @@ function buildPaper(){
   }
   html += `<div class="paper-foot"><span>&#10753; ${esc(orgLines[0]||"수학 문항은행")}에서 제작한 자료이므로 본 자료를 무단으로 복제하거나 배포하는 것을 금합니다.</span><span class="pg">1</span></div>`;
   const paper=$("#paper"); paper.innerHTML=html; renderMath(paper);
+}
+
+/* ================================================================
+   NAESIN — 시험지 저장 · 학생 · 오답 · 재시험
+================================================================ */
+let EXAMS=[], STUDENTS=[], examSeq=0, stuSeq=0, curStuId=null, curExamId=null;
+const pKey = p => normBody(p.body);
+const pByKey = k => PROBLEMS.find(p=>normBody(p.body)===k);
+
+function saveExam(){
+  const ids=(state.examOrder||state.basket).slice();
+  const probs=ids.map(pById).filter(Boolean);
+  if(!probs.length){ toast("바구니가 비어 있습니다."); return; }
+  const d=new Date();
+  const name=`${$("#eMonth").value}월 ${($("#eName").value||"시험지").trim()} ${$("#eType").value}`;
+  const n=EXAMS.filter(e=>e.name.startsWith(name)).length;
+  EXAMS.push({id:++examSeq, name:n?`${name} (${n+1})`:name,
+    date:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`,
+    keys:probs.map(pKey)});
+  markDirty();
+  toast(`'${name}' 시험지를 저장했습니다. [내신대비]에서 학생별 오답 체크에 사용할 수 있어요.`);
+}
+
+function addStudent(){
+  const name=$("#nsName").value.trim();
+  if(!name){ toast("학생 이름을 입력하세요."); return; }
+  STUDENTS.push({id:++stuSeq, name, grade:$("#nsGrade").value, wrong:{}});
+  $("#nsName").value="";
+  markDirty(); renderNaesin();
+  toast(`${name} 학생을 추가했습니다.`);
+}
+let _stuDelArm=false;
+function removeStudent(){
+  const s=STUDENTS.find(x=>x.id===curStuId); if(!s) return;
+  if(!_stuDelArm){ _stuDelArm=true; toast(`'${s.name}' 학생과 오답 기록을 삭제합니다. 정말이면 4초 안에 한 번 더 누르세요.`); setTimeout(()=>_stuDelArm=false,4000); return; }
+  STUDENTS=STUDENTS.filter(x=>x.id!==curStuId);
+  curStuId=null; curExamId=null; _stuDelArm=false;
+  markDirty(); renderNaesin();
+}
+function openStudent(id){ curStuId=id; curExamId=null; renderNaesin(); }
+function openWrong(eid){ curExamId=eid; renderNaesin(); }
+function toggleWrong(eid, idx, on){
+  const s=STUDENTS.find(x=>x.id===curStuId); const e=EXAMS.find(x=>x.id===eid);
+  if(!s||!e) return;
+  const key=e.keys[idx];
+  const arr=s.wrong[e.id]=(s.wrong[e.id]||[]);
+  const i=arr.indexOf(key);
+  if(on && i<0) arr.push(key);
+  if(!on && i>=0) arr.splice(i,1);
+  markDirty(); renderNaesin();
+}
+function makeRetest(){
+  const s=STUDENTS.find(x=>x.id===curStuId); const e=EXAMS.find(x=>x.id===curExamId);
+  if(!s||!e) return;
+  const wrongKeys=s.wrong[e.id]||[];
+  if(!wrongKeys.length){ toast("체크된 틀린 문항이 없습니다."); return; }
+  let added=0, noVar=0;
+  wrongKeys.forEach(k=>{
+    const p=pByKey(k); if(!p) return;
+    const vars = p.qnum? PROBLEMS.filter(q=>q.id!==p.id&&q.set===p.set&&qBase(q)===qBase(p))
+      .sort((a,b)=>parseInt(a.qnum.split("-")[1])-parseInt(b.qnum.split("-")[1])) : [];
+    const pool = vars.length? vars : [p];
+    if(!vars.length) noVar++;
+    pool.forEach(v=>{ if(!state.basket.includes(v.id)){ state.basket.push(v.id); added++; } });
+  });
+  state.examOrder=null; refreshCards(); switchView('search');
+  toast(`틀린 ${wrongKeys.length}문항의 변형 ${added}개를 바구니에 담았습니다${noVar?` (변형이 없는 ${noVar}문항은 원문항 포함)`:""}. 필요 없는 문항을 빼고 시험지를 만들어주세요.`);
+}
+function renderNaesin(){
+  const list=$("#stuList"); if(!list) return;
+  list.innerHTML = STUDENTS.length? STUDENTS.map(s=>{
+    const nW=Object.values(s.wrong).reduce((a,b)=>a+b.length,0);
+    return `<div class="file-row" style="cursor:pointer; ${s.id===curStuId?"border-color:var(--green);":""}" onclick="openStudent(${s.id})">
+      <div class="file-ico" style="background:${s.id===curStuId?"var(--green)":"#b9a7ec"}">${esc(s.name.slice(0,2))}</div>
+      <div class="f-info"><div class="f-title">${esc(s.name)} <span class="hint">${esc(s.grade)}</span></div>
+      <div class="f-sub">오답 기록 ${nW}문항</div></div>
+      <span class="tag">${s.id===curStuId?"선택됨":"클릭하여 관리"}</span>
+    </div>`;}).join("") : `<p class="hint">아직 학생이 없습니다. 위에서 추가해보세요.</p>`;
+  const s=STUDENTS.find(x=>x.id===curStuId);
+  $("#stuDetail").style.display = s? "block":"none";
+  if(!s) return;
+  $("#stuTitle").textContent = `${s.name} (${s.grade})`;
+  $("#stuSub").textContent = "시험지를 골라 [오답 체크]를 누르세요.";
+  $("#stuExamList").innerHTML = EXAMS.length? EXAMS.map(e=>{
+    const w=(s.wrong[e.id]||[]).length;
+    return `<div class="file-row" style="${e.id===curExamId?"border-color:var(--green);":""}">
+      <div class="file-ico" style="background:#9fd8c3; font-size:9px;">시험지</div>
+      <div class="f-info"><div class="f-title">${esc(e.name)}</div><div class="f-sub">${e.date} · ${e.keys.length}문항${w?` · 틀린 문항 ${w}개`:""}</div></div>
+      <button class="btn sm ${e.id===curExamId?"green":""}" onclick="openWrong(${e.id})">오답 체크</button>
+    </div>`;}).join("") : `<p class="hint">저장된 시험지가 없습니다. 시험지 미리보기 화면에서 <b>[시험지 저장]</b>을 누르면 여기에 나타납니다.</p>`;
+  const e=EXAMS.find(x=>x.id===curExamId);
+  $("#wrongPanel").style.display = e? "block":"none";
+  if(!e) return;
+  $("#wrongTitle").textContent = `${e.name} — 오답 체크`;
+  const wrongSet=new Set(s.wrong[e.id]||[]);
+  $("#wrongList").innerHTML = e.keys.map((k,i)=>{
+    const p=pByKey(k);
+    if(!p) return `<div class="file-row"><div class="f-info"><div class="f-sub">${i+1}번 — 삭제된 문항</div></div></div>`;
+    const vc=p.qnum? PROBLEMS.filter(q=>q.id!==p.id&&q.set===p.set&&qBase(q)===qBase(p)).length:0;
+    const isW=wrongSet.has(k);
+    return `<div class="file-row" style="${isW?"border-color:#e8b3a8; background:#fdf4f2;":""}">
+      <label style="display:flex; align-items:center; gap:10px; flex:1; cursor:pointer; min-width:0;">
+        <input type="checkbox" ${isW?"checked":""} onchange="toggleWrong(${e.id},${i},this.checked)" style="accent-color:#c4776a; width:16px; height:16px; flex-shrink:0;">
+        <div class="f-info"><div class="f-title">${i+1}번 ${p.qnum?`· [${p.qnum}]`:""} ${esc(p.unit)} · ${esc(p.type)}</div>
+        <div class="f-sub">난이도 ${fmtDiff(p.difficulty)} · 변형 ${vc}개 보유${vc===0?" (재시험 시 원문항 사용)":""}</div></div>
+      </label>
+    </div>`;}).join("");
 }
 
 /* ================================================================
@@ -1142,10 +1287,10 @@ function bulkCheck(silent){
       const nb=normBody(it.body);
       if(bodies.has(nb)||seen.has(nb)) dup++; else seen.add(nb);
       const sfx=parseInt(String(it.num||`${i+1}-1`).split("-")[1]||"1");
-      if(sfx>10) over++;
+      if(sfx>20) over++;
     });
     el.textContent = `✓ ${arr.length}문항 인식 (객관식 ${obj} · 주관식 ${arr.length-obj}) · 번호 그룹 ${bases.size}개`
-      + (dup?` · 완전 중복 ${dup}개 제외 예정`:"") + (over?` · -10 초과 변형 ${over}개 제외 예정`:"");
+      + (dup?` · 완전 중복 ${dup}개 제외 예정`:"") + (over?` · -20 초과 변형 ${over}개 제외 예정`:"");
     el.style.color = "var(--green-dark)";
     return arr;
   }catch(e){
@@ -1170,7 +1315,7 @@ function bulkRegister(){
     const num = String(it.num || `${i+1}-1`);
     const base = num.split("-")[0];
     const sfx = parseInt(num.split("-")[1]||"1");
-    if(sfx>10){ capSkipped++; return; }                       // 변형은 -10까지만 보관
+    if(sfx>20){ capSkipped++; return; }                       // 변형은 -20까지만 보관
     const nb = normBody(it.body);
     if(bodies.has(nb)){ dupSkipped++; return; }               // 숫자까지 똑같은 완전 중복 차단
     bodies.add(nb);
@@ -1189,7 +1334,7 @@ function bulkRegister(){
     p.explanation = (it.explanation && String(it.explanation)) || null;
     PROBLEMS.push(p); added++;
   });
-  // 유형 풀 정리: 같은 (과목·단원·유형) 변형이 10개를 넘으면 오래된 연도부터 자동 삭제
+  // 유형 풀 정리: 같은 (과목·단원·유형) 변형이 20개를 넘으면 오래된 연도부터 자동 삭제
   let pruned = 0;
   {
     const pools = {};
@@ -1198,12 +1343,13 @@ function bulkRegister(){
       (pools[k]=pools[k]||[]).push(p);
     });
     Object.values(pools).forEach(list=>{
-      if(list.length<=10) return;
-      list.sort((a,b)=>((a.year||0)-(b.year||0)) || (a.id-b.id));   // 오래된 것부터
-      let excess = list.length-10;
+      if(list.length<=20) return;
+      // 삭제 우선순위: 난이도 낮은 것 → (같으면) 연도 오래된 것 → 등록 오래된 것
+      // 즉 어렵고 최근인 문항이 우선적으로 남는다
+      list.sort((a,b)=>(a.difficulty-b.difficulty) || ((a.year||0)-(b.year||0)) || (a.id-b.id));
+      let excess = list.length-20;
       for(const p of list){
         if(excess<=0) break;
-        if(p.set===setName) continue;                               // 방금 올린 것은 남김
         PROBLEMS.splice(PROBLEMS.indexOf(p),1);
         state.basket = state.basket.filter(x=>x!==p.id);
         pruned++; excess--;
@@ -1216,8 +1362,8 @@ function bulkRegister(){
   markDirty();
   toast(`${year}년 자료로 ${added}문항 등록`
     + (dupSkipped?` · 완전 중복 ${dupSkipped}개 제외`:"")
-    + (capSkipped?` · 한 번에 -10 초과 변형 ${capSkipped}개 제외`:"")
-    + (pruned?` · 유형당 10개 유지를 위해 오래된 변형 ${pruned}개 자동 정리`:""));
+    + (capSkipped?` · -20 초과 변형 ${capSkipped}개 제외`:"")
+    + (pruned?` · 유형당 20개 유지 — 쉬운·오래된 변형 ${pruned}개 자동 정리`:""));
 }
 function toggleChoiceInput(){
   $("#choiceField").style.display = $("#rForm").value==="obj"?"block":"none";
@@ -1363,11 +1509,13 @@ function deleteYear(y){
 ================================================================ */
 const TITLES={search:"문항 검색 <small>조건을 조합해 필요한 문항을 찾아보세요</small>",
   admin:"문항 등록/관리 <small>새 문항을 등록하고 메타데이터를 관리합니다</small>",
-  exam:"월간테스트 만들기 <small>바구니에 담은 문항으로 월간테스트를 구성합니다</small>",
+  exam:"시험지 만들기 <small>바구니에 담은 문항으로 시험지를 구성합니다</small>",
+  naesin:"내신대비 <small>학생별 오답 관리 · 변형 문제로 재시험 만들기</small>",
   bm:"Beατifυl Mατλ <small>교재·기출 자료 폴더 아카이브</small>"};
 function switchView(v){
-  ["search","admin","exam","bm"].forEach(x=>$("#view-"+x).style.display = x===v?"block":"none");
+  ["search","admin","exam","naesin","bm"].forEach(x=>$("#view-"+x).style.display = x===v?"block":"none");
   if(v==="bm"){ closeFolder(); renderFolders(); }
+  if(v==="naesin") renderNaesin();
   $("#pageTitle").innerHTML=TITLES[v];
   document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
   if(v==="exam" && state.basket.length>0){ openExam(); }
@@ -1389,7 +1537,12 @@ function collectState(){
     })),
     folders: FOLDERS.map(function ser(f){ return {name:f.name, color:f.color,
       files:f.files.map(fl=>({name:fl.name, size:fl.size, date:fl.date, path:fl.path||null})),
-      children:f.children.map(ser)}; })
+      children:f.children.map(ser)}; }),
+    exams: EXAMS.map(e=>({name:e.name, date:e.date, keys:e.keys})),
+    students: STUDENTS.map(s=>({name:s.name, grade:s.grade,
+      wrong: Object.fromEntries(Object.entries(s.wrong)
+        .map(([eid,keys])=>[EXAMS.findIndex(e=>e.id===parseInt(eid)), keys])
+        .filter(([idx,keys])=>idx>=0 && keys.length))}))
   };
 }
 function applyState(data, replace){
@@ -1410,7 +1563,18 @@ function applyState(data, replace){
       (f.files||[]).map(fl=>({name:fl.name, size:fl.size, date:fl.date, path:fl.path||null, demo:!fl.path}))); });
     bmPath=[];
   }
-  buildSrcRow(); buildUnitBox(); buildSubjRow(); renderAdminGrid(); renderFolders(); renderBasket();
+  if(Array.isArray(data.exams)){
+    EXAMS = data.exams.map(e=>({id:++examSeq, name:e.name, date:e.date, keys:e.keys||[]}));
+    curExamId=null;
+  }
+  if(Array.isArray(data.students)){
+    STUDENTS = data.students.map(s=>({id:++stuSeq, name:s.name, grade:s.grade,
+      wrong: Object.fromEntries(Object.entries(s.wrong||{})
+        .map(([idx,keys])=>{ const e=EXAMS[parseInt(idx)]; return e? [e.id, keys] : null; })
+        .filter(Boolean))}));
+    curStuId=null;
+  }
+  buildSrcRow(); buildUnitBox(); buildSubjRow(); renderAdminGrid(); renderFolders(); renderBasket(); renderNaesin();
   if(state.searched) runSearch();
   return added;
 }
